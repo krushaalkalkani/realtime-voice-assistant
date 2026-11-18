@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Interview Coach</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6eb;
+      --user: #e8f0ff; --bot: #f1f3f6; --accent: #2f6fed; --ok: #1a9b5c; --warn: #d98a00; --err: #d23c3c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12151b; --panel: #1a1e26; --text: #e6e8ec; --muted: #9aa3b2; --border: #2a303b;
+        --user: #1e2b45; --bot: #232833;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+    header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--panel); }
+    h1 { font-size: 18px; margin: 0; flex: 1; }
+    button { font: inherit; padding: 8px 18px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .status { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 170px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+    .status[data-s="listening"] .dot { background: var(--ok); }
+    .status[data-s="speaking-user"] .dot { background: var(--ok); animation: pulse .6s infinite alternate; }
+    .status[data-s="responding"] .dot { background: var(--warn); }
+    .status[data-s="playing"] .dot { background: var(--accent); animation: pulse .6s infinite alternate; }
+    @keyframes pulse { to { transform: scale(1.5); } }
+    .meter { width: 90px; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .meter div { height: 100%; width: 0; background: var(--ok); transition: width .05s; }
+    main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 16px; padding: 16px 24px; height: calc(100vh - 66px); }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; height: auto; } }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; min-height: 0; }
+    section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .scroll { overflow-y: auto; padding: 16px; flex: 1; min-height: 300px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; margin-bottom: 10px; white-space: pre-wrap; }
+    .msg.user { background: var(--user); margin-left: auto; }
+    .msg.bot { background: var(--bot); }
+    .msg.partial { opacity: .6; font-style: italic; }
+    .msg .meta { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+    #events { font: 12px/1.6 ui-monospace, Menlo, monospace; padding: 8px 12px; }
+    .ev { display: grid; grid-template-columns: 64px 26px 1fr; gap: 6px; border-bottom: 1px dashed var(--border); }
+    .ev .t { color: var(--muted); text-align: right; }
+    .ev .turn { color: var(--muted); }
+    .ev .d { color: var(--muted); overflow-wrap: anywhere; }
+    .ev.error .name { color: var(--err); font-weight: 700; }
+    .ev.turn_complete .name { color: var(--ok); font-weight: 700; }
+    .hint { color: var(--muted); padding: 16px; }
+    .note { font-size: 12px; color: var(--muted); margin: -4px 0 10px; }
+    .note.warn { color: var(--warn); }
+    form.typebox { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+    form.typebox input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    form.typebox input.attention { border-color: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 30%, transparent); }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    #faults { display: flex; gap: 14px; align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
+    #faults[hidden] { display: none; }
+    #faults select { font: inherit; padding: 4px 6px; border-radius: 6px; }
+    .wf { margin-top: 8px; white-space: normal; }
+    .wf-bar { position: relative; display: flex; height: 12px; border-radius: 3px; background: var(--border); overflow: visible; }
+    .wf-bar > div:not(.wf-target) { height: 100%; }
+    .wf-target { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--err); }
+    .wf-caption { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .wf-caption .ok { color: var(--ok); } .wf-caption .bad { color: var(--err); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎙️ Voice Interview Coach <small style="color:var(--muted);font-weight:400">— Phase 3</small></h1>
+    <div class="meter" title="mic level"><div id="meter"></div></div>
+    <div class="status" id="status" data-s="idle"><span class="dot"></span><span id="statusText">Not started</span></div>
+    <button id="faultsBtn" class="ghost" title="Break components on purpose to test resilience">🧪 Faults</button>
+    <button id="startBtn">Start</button>
+  </header>
+  <div id="faults" hidden>
+    <b>Fault injection</b>
+    <label>ASR <select id="fault-asr"><option>ok</option><option>slow:5000</option><option>hang</option><option>down</option></select></label>
+    <label>LLM <select id="fault-llm"><option>ok</option><option>slow:5000</option><option>hang</option><option>stall</option><option>down</option></select></label>
+    <label>TTS <select id="fault-tts"><option>ok</option><option>slow:5000</option><option>hang</option><option>stall</option><option>down</option></select></label>
+    <span style="color:var(--muted)">applies from the next turn</span>
+  </div>
+  <main>
+    <section>
+      <h2>Conversation</h2>
+      <div class="scroll" id="chat">
+        <p class="hint">Press <b>Start</b>, allow the microphone, and answer the coach's questions out loud.
+          Pause for ~1 second when you're done talking. You can interrupt the coach by talking over it. Headphones help.</p>
+      </div>
+      <form class="typebox" id="textForm">
+        <input id="textInput" placeholder="…or type your answer here" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+    <section>
+      <h2>Pipeline events (ms since session start)</h2>
+      <div class="scroll" id="events"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
