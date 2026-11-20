@@ -4,3 +4,7 @@ __pycache__/
 models/
 logs/
 .pytest_cache/
+.DS_Store
+.env
+.claude/
+site/.vercel/

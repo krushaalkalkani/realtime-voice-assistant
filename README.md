@@ -1,21 +1,37 @@
 # Real-Time Voice Assistant — Mock Interview Coach
 
+[![tests](https://github.com/krushaalkalkani/realtime-voice-assistant/actions/workflows/tests.yml/badge.svg)](https://github.com/krushaalkalkani/realtime-voice-assistant/actions/workflows/tests.yml)
+**Live site:** https://voice-interview-coach-mocha.vercel.app (results, architecture, and an interactive replay of recorded sessions)
+
 Speak into the browser → speech-to-text → local LLM → text-to-speech → the coach answers out loud.
-Everything runs locally and costs $0. Every pipeline stage emits a timestamped event so latency can be measured (Phase 2).
+Everything runs locally and costs $0. Every pipeline stage emits a timestamped event, so each turn's latency is broken down stage by stage, and every component can fail without freezing the conversation.
+
+![One real turn, replayed at real speed from its event log](site/demo.gif)
+
+*One real benchmark turn, replayed at real speed from its event log: where the 1.8 s between "the candidate stops talking" and "the coach starts talking" goes.*
+
+| Result | |
+|---|---|
+| Median time to first audio | **1.80 s** (from 3.38 s, −47%) · p95 2.02 s (from 5.65 s) |
+| Failure scenarios (ASR / LLM / TTS down, hung, stalled; real outage; barge-in) | **11 / 11 degrade instead of hanging**, all recover on the next turn |
+| Deterministic replay of recorded sessions | **30 / 30 turns identical** |
+| Tests | 27, run in CI on every push |
 
 **Status:** Phase 1 (end-to-end streaming pipeline) ✅ · Phase 2 (latency budget) ✅ · Phase 3 (resilience) ✅
 
 ## Run it
 
-Requires [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com) with `llama3.2:3b` pulled.
+Requires [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com).
 
 ```bash
 uv sync
+ollama pull llama3.2:3b          # main model
+ollama pull phi4-mini            # fallback model, used when the main one is slow or down
 uv run python -m piper.download_voices en_US-lessac-medium --data-dir models/piper   # one-time, ~60 MB
 uv run uvicorn server.main:app --port 8010
 ```
 
-Open http://localhost:8010, press **Start**, allow the mic, and answer the coach. Pause ~1 s when you finish speaking. (The Whisper model downloads itself on the first run.)
+Open http://localhost:8010, press **Start**, allow the mic, and answer the coach. Pause ~1 s when you finish speaking. (The Whisper model downloads itself on the first run.) Talk over the coach to interrupt it, or type in the box instead. Press **🧪 Faults** to break components on purpose.
 
 Tests and a headless end-to-end check (fakes a browser by streaming generated speech into the WebSocket):
 
@@ -176,3 +192,13 @@ uv run python replay/replay.py <session_id> --faults asr=down             # how 
 To be deterministic, replay runs on a **logical clock** (each turn's work finishes before more audio is fed) and treats everything that came from outside the code as a **recorded input**: the audio, the browser's messages, the faults active on each turn, the LLM replies, failures caused by the environment (Ollama down, a model still loading, TTS starved of CPU), and circuit-breaker decisions (they depend on how long earlier turns took). VAD and Whisper are deterministic, so they run for real. **Result: all 12 fault-injection sessions (30 turns, including the random run, barge-in and the outage) replay identically.**
 
 Getting there took three rounds, and each one exposed an input the recording wasn't capturing yet: faults switched on live, the breaker's notion of time, and environment failures.
+
+## Showcase site
+[`site/`](site/) is a static page deployed on Vercel (it can't host the assistant itself: that needs local models and a long-lived WebSocket server). Its data comes from the recorded benchmark and fault-injection sessions; the "user" in those is generated speech, and live sessions are never exported.
+
+```bash
+uv run python scripts/export_site_data.py   # sessions + benchmark summary -> site/data/*.json (paths stripped)
+uv run python scripts/make_site_media.py    # site/demo.gif + site/og.png from a real recorded turn
+python3 -m http.server 8030 --directory site
+```
+

@@ -1,0 +1,36 @@
+# Runs the full test suite on every push and pull request.
+# The tests use real models (Silero VAD, faster-whisper base.en, a Piper voice) on generated
+# speech, so the models are downloaded once and cached between runs. No API keys needed.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Cache models (Piper voice + Whisper)
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-lessac-medium-base.en-v1
+      - name: Download the Piper voice (first run only)
+        run: |
+          test -f models/piper/en_US-lessac-medium.onnx || \
+            uv run python -m piper.download_voices en_US-lessac-medium --data-dir models/piper
+      - run: uv run pytest -q
