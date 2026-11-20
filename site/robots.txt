@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://voice-interview-coach-mocha.vercel.app/sitemap.xml
